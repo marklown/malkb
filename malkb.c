@@ -38,26 +38,35 @@
 #define CPU_PRESCALE(n)	(CLKPR = 0x80, CLKPR = (n))
 
 #define NUM_ROWS 5
-#define NUM_COLS 14
+#define NUM_COLS 15
 #define NUM_LAYERS 2
 
 #define INIT_WAIT 1000
 #define DEBOUNCE_WAIT 2
 
+// ---- STRUCTURES -----------------------------------------------------------
+typedef struct pin_t {
+	volatile uint8_t* port;		// PORTx - set output or configure input
+	volatile uint8_t* direction; 	// DDRx  - set as input or output
+	volatile uint8_t* pin;			// PINx  - read the pin
+	uint8_t x;					// index of this letter port
+} myPin;
+
+// ---- DEFINE LAYERS --------------------------------------------------------
 static const uint8_t layers[NUM_LAYERS][NUM_ROWS][NUM_COLS] = {
     /* Layer 0 */
-    {{KEY_TILDE,      KEY_1,   KEY_2, KEY_3, KEY_4, KEY_5, KEY_6, KEY_7, KEY_8,     KEY_9,      KEY_0,         KEY_MINUS,       KEY_EQUAL,        KEY_BACKSPACE},
-     {KEY_TAB,        KEY_Q,   KEY_W, KEY_E, KEY_R, KEY_T, KEY_Y, KEY_U, KEY_I,     KEY_O,      KEY_P,         KEY_LEFT_BRACE,  KEY_RIGHT_BRACE,  KEY_BACKSLASH},
-     {KEY_FN0,        KEY_A,   KEY_S, KEY_D, KEY_F, KEY_G, KEY_H, KEY_J, KEY_K,     KEY_L,      KEY_SEMICOLON, KEY_QUOTE,       KEY_ENTER,        KEY_NONE},
-     {KEY_LEFT_SHIFT, KEY_Z,   KEY_X, KEY_C, KEY_V, KEY_B, KEY_N, KEY_M, KEY_COMMA, KEY_PERIOD, KEY_SLASH,     KEY_RIGHT_SHIFT, KEY_NONE,         KEY_PAUSE},
-     {KEY_LEFT_CTRL,  KEY_GUI, KEY_LEFT_ALT, KEY_SPACE,KEY_NONE,KEY_NONE,KEY_NONE,KEY_NONE,KEY_NONE,KEY_NONE,  KEY_RIGHT_ALT,   KEY_FN0, KEY_FN1, KEY_FN2}},
+    {{KEY_TILDE,      KEY_1,   KEY_2, KEY_3, KEY_4, KEY_5, KEY_6, KEY_7, KEY_8,     KEY_9,      KEY_0,         KEY_MINUS,       KEY_EQUAL,        KEY_BACKSPACE, 0},
+     {KEY_TAB,        KEY_Q,   KEY_W, KEY_E, KEY_R, KEY_T, KEY_Y, KEY_U, KEY_I,     KEY_O,      KEY_P,         KEY_LEFT_BRACE,  KEY_RIGHT_BRACE,  KEY_BACKSLASH, 0},
+     {KEY_FN0,        KEY_A,   KEY_S, KEY_D, KEY_F, KEY_G, KEY_H, KEY_J, KEY_K,     KEY_L,      KEY_SEMICOLON, KEY_QUOTE,       KEY_ENTER,        KEY_NONE, 0},
+     {KEY_LEFT_SHIFT, KEY_Z,   KEY_X, KEY_C, KEY_V, KEY_B, KEY_N, KEY_M, KEY_COMMA, KEY_PERIOD, KEY_SLASH,     KEY_RIGHT_SHIFT, KEY_NONE,         KEY_PAUSE, 0},
+     {KEY_LEFT_CTRL,  KEY_GUI, KEY_LEFT_ALT, KEY_SPACE,KEY_NONE,KEY_NONE,KEY_NONE,KEY_NONE,KEY_NONE,KEY_NONE,  KEY_RIGHT_ALT,   KEY_FN0, KEY_FN1, KEY_FN2, 0}},
     
     /* Layer 1 */
-    {{0,0,0,0,0,0,0,0,0,0,0,0,0,0},
-     {0,0,0,0,0,0,0,0,0,0,0,0,0,0},
-     {0,0,0,0,0,0,0,0,0,0,0,0,0,0},
-     {0,0,0,0,0,0,0,0,0,0,0,0,0,0},
-     {0,0,0,0,0,0,0,0,0,0,0,0,0,0}}
+    {{0,0,0,0,0,0,0,0,0,0,0,0,0,0,0},
+     {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0},
+     {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0},
+     {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0},
+     {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0}}
 };
 
 // --------- LOCAL VARIABLES --------------------------------------------------
@@ -66,24 +75,58 @@ static const uint8_t layers[NUM_LAYERS][NUM_ROWS][NUM_COLS] = {
 bool keys[NUM_ROWS][NUM_COLS];
 
 
-// --------------------------------------
-// keys are stored in:
-// uint8_t keyboard_modifier_keys;
-// uint8_t keyboard_keys[6];
-// using keycodes from usb_keyboard.h
-// --------------------------------------
-
-
-// --------- FUNCTION PROTOTYPES ----------------------------------------------
-
+// --------- KEYBOARD FUNCTIONS ----------------------------------------------
 void kb_loop(void);
 void kb_init(void);
 void kb_read_matrix(void);
-bool kb_read_col(int col);
-void kb_set_row(int row, bool high);
 void do_key_up(int row, int col);
 void do_key_dn(int row, int col);
 
+// ---- FUNCTIONS TO INTERACT WITH TEENSY IO ---------------------------------
+void teensy_configure_as_output(struct pin_t* row_or_col, int x);
+void teensy_configure_as_input(struct pin_t* row_or_col, int x, bool pu);
+void teensy_set_high(struct pin_t* row_or_col, int x);
+void teensy_set_low(struct pin_t* row_or_col, int x);
+bool teensy_read_input(struct pin_t* row_or_col, int x);
+
+// ---- JUMP TO BOOTLOADER ---------------------------------------------------
+void teensy_reboot(void);
+
+// ---- DEFINE THE MAPPING FROM ROW TO PIN ON TEENSY -------------------------
+struct pin_t row_to_pin[5] = {
+		{&PORTC, &DDRC, &PINC, 0},
+		{&PORTC, &DDRC, &PINC, 1},
+		{&PORTC, &DDRC, &PINC, 2},
+		{&PORTC, &DDRC, &PINC, 3},
+		{&PORTC, &DDRC, &PINC, 4},
+};
+
+// ---- DEFINE THE MAPPING FROM COLUMN TO PIN ON TEENSY ----------------------
+struct pin_t col_to_pin[15] = {
+		{&PORTB, &DDRB, &PINB, 0},
+		{&PORTB, &DDRB, &PINB, 1},
+		{&PORTB, &DDRB, &PINB, 2},
+		{&PORTB, &DDRB, &PINB, 3},
+		{&PORTB, &DDRB, &PINB, 4},
+		{&PORTB, &DDRB, &PINB, 5},
+		{&PORTB, &DDRB, &PINB, 6},
+		{&PORTB, &DDRB, &PINB, 7},
+		{&PORTD, &DDRD, &PIND, 0},
+		{&PORTD, &DDRD, &PIND, 1},
+		{&PORTD, &DDRD, &PIND, 2},
+		{&PORTD, &DDRD, &PIND, 3},
+		{&PORTD, &DDRD, &PIND, 4},
+		{&PORTD, &DDRD, &PIND, 6},
+		{&PORTF, &DDRF, &PINF, 7},
+};
+
+#define ROW_0_PORT PORTC
+#define ROW_1_PORT PORTC
+/*
+	ROW_0_PORT |= (1<<1);
+*/
+
+// ---- MAIN ENTRY POINT -----------------------------------------------------
 int main(void)
 {
     // Set for 16 MHz clock
@@ -154,27 +197,18 @@ void kb_loop(void)
 
 void kb_init(void)
 {
-    // ------- Setup pins -------------------------------------------------------------------
-    
-    // ROW:  0,  1,  2,  3,  4
-    // PIN: C0, C1, C2, C3, C4
-    
-    // COL:  0,  1,  2,  3,  4,  5,  6,  7,  8,  9,  10,  11,  12,  13
-    // PIN: B0, B1, B2, B3, B4, B5, B6, B7, D0, D1,  D2,  D3,  D6,  F7
-    
-    // We are driving the rows, so set the row pins (5 of them) as outputs
-    // and default them to low
-    DDRC |= (1<<4 | 1<<3 | 1<<2 | 1<<1 | 1<<0);   // C0-C4 inputs
-    PORTC &= ~(1<<4 | 1<<3 | 1<<2 | 1<<1 | 1<<0); // C0-C4 set low
-    
-    // We are reading the columns, so set the column pins (14 of them) as
-    // inputs with pullup resistors
-    DDRF &= ~(1<<7); // F7 input
-    PORTF |= (1<<7); // F7 pullups
-    DDRB &= ~(1<<7 | 1<<6 | 1<<5 | 1<<4 | 1<<3 | 1<<2 | 1<<1 | 1<<0); // B0-B7 inputs
-    PORTB |= (1<<7 | 1<<6 | 1<<5 | 1<<4 | 1<<3 | 1<<2 | 1<<1 | 1<<0); // B0-B7 pullups
-    DDRD &= ~(1<<6 | 1<<3 | 1<<2 | 1<<1 | 1<<0); // D0-D3, D6 inputs
-    PORTD |= (1<<6 | 1<<3 | 1<<2 | 1<<1 | 1<<0); // D0-D3, D6 pullups
+	int row, col;
+	
+	// Set rows as outputs
+	for (row = 0; row < NUM_ROWS; row++) {
+		teensy_configure_as_output(row_to_pin, row);
+		teensy_set_low(row_to_pin, row);
+	}
+	
+	// Set columns as inputs with pullup resistors
+	for (col = 0; col < NUM_COLS; col++) {
+		teensy_configure_as_input(col_to_pin, col, true);
+	}
 }
 
 void kb_read_matrix(void)
@@ -185,13 +219,13 @@ void kb_read_matrix(void)
     for (row = 0; row < NUM_ROWS; row++) {
        
         // Set row output to high
-        kb_set_row(row, true);
+        teensy_set_high(row_to_pin, row);
         
         // Loop through all columns
         for (col = 0; col < NUM_COLS; col++) {
             
             // If input is high the key at row, col is pressed
-            if (kb_read_col(col)) {
+            if (teensy_read_input(col_to_pin, col)) {
                 keys[row][col] = true;
             } else {
                 keys[row][col] = false;
@@ -199,87 +233,39 @@ void kb_read_matrix(void)
         }
         
         // Set row back to low
-        kb_set_row(row, false);
+        teensy_set_low(row_to_pin, row);
     }
 }
 
-bool kb_read_col(int col)
+void teensy_configure_as_output(struct pin_t* row_or_col, int x)
 {
-    /* A much better way to do this would be to use a map for pin to col
-     or do something with macros. This pinout is duplicated here and 
-     is a possible source for bugs. */
-    
-    bool high = false;
-    switch (col) {
-        case 0:
-            if (PINB & (1<<0)) high = true;
-            break;
-        case 1:
-            if (PINB & (1<<1)) high = true;
-            break;
-        case 2:
-            if (PINB & (1<<2)) high = true;
-            break;
-        case 3:
-            if (PINB & (1<<3)) high = true;
-            break;
-        case 4:
-            if (PINB & (1<<4)) high = true;
-            break;
-        case 5:
-            if (PINB & (1<<5)) high = true;
-            break;
-        case 6:
-            if (PINB & (1<<6)) high = true;
-            break;
-        case 7:
-            if (PINB & (1<<7)) high = true;
-            break;
-        case 8:
-            if (PIND & (1<<0)) high = true;
-            break;
-        case 9:
-            if (PIND & (1<<1)) high = true;
-            break;
-        case 10:
-            if (PIND & (1<<2)) high = true;
-            break;
-        case 11:
-            if (PIND & (1<<3)) high = true;
-            break;
-        case 12:
-            if (PIND & (1<<6)) high = true;
-            break;
-        case 13:
-            if (PINF & (1<<7)) high = true;
-            break;
-    }
-    
-    return high;
+	(*row_or_col[x].direction) |= (1<<row_or_col[x].x);
 }
 
-void kb_set_row(int row, bool high)
+void teensy_configure_as_input(struct pin_t* row_or_col, int x, bool pu)
 {
-    /* A much better way to do this would be to use a map for pin to row
-     or do something with macros. */
-    
-    switch (row) {
-        case 0:
-            high ? (PORTC != (1<<0)) : (PORTC &= ~(1<<0));
-            break;
-        case 1:
-            high ? (PORTC != (1<<1)) : (PORTC &= ~(1<<1));
-            break;
-        case 2:
-            high ? (PORTC != (1<<2)) : (PORTC &= ~(1<<2));
-            break;
-        case 3:
-            high ? (PORTC != (1<<3)) : (PORTC &= ~(1<<3));
-            break;
-        case 4:
-            high ? (PORTC != (1<<4)) : (PORTC &= ~(1<<4));
-            break;
-    }
+	(*row_or_col[x].direction) &= ~(1<<row_or_col[x].x);
+	pu ? (*row_or_col[x].port |= (1<<row_or_col[x].x)) :
+		 (*row_or_col[x].port &= ~(1<<row_or_col[x].x));
+}
+
+void teensy_set_high(struct pin_t* row_or_col, int x)
+{
+	(*row_or_col[x].port) |= (1<<row_or_col[x].x);
+}
+
+void teensy_set_low(struct pin_t* row_or_col, int x)
+{
+	(*row_or_col[x].port) &= ~(1<<row_or_col[x].x);
+}
+
+bool teensy_read_input(struct pin_t* row_or_col, int x)
+{
+	if ((*row_or_col[x].pin) & (1<<row_or_col[x].x)) {
+		return true;
+	} else {
+		return false;
+	}
 }
 
 void do_key_up(int row, int col)
@@ -292,4 +278,38 @@ void do_key_dn(int row, int col)
     
 }
 
-
+void teensy_reboot(void)
+{
+	cli();
+	// disable watchdog, if enabled
+	// disable all peripherals
+	UDCON = 1;
+	USBCON = (1<<FRZCLK);  // disable USB
+	UCSR1B = 0;
+	_delay_ms(5);
+	#if defined(__AVR_AT90USB162__)                // Teensy 1.0
+		EIMSK = 0; PCICR = 0; SPCR = 0; ACSR = 0; EECR = 0;
+		TIMSK0 = 0; TIMSK1 = 0; UCSR1B = 0;
+		DDRB = 0; DDRC = 0; DDRD = 0;
+		PORTB = 0; PORTC = 0; PORTD = 0;
+		asm volatile("jmp 0x3E00");
+	#elif defined(__AVR_ATmega32U4__)              // Teensy 2.0
+		EIMSK = 0; PCICR = 0; SPCR = 0; ACSR = 0; EECR = 0; ADCSRA = 0;
+		TIMSK0 = 0; TIMSK1 = 0; TIMSK3 = 0; TIMSK4 = 0; UCSR1B = 0; TWCR = 0;
+		DDRB = 0; DDRC = 0; DDRD = 0; DDRE = 0; DDRF = 0; TWCR = 0;
+		PORTB = 0; PORTC = 0; PORTD = 0; PORTE = 0; PORTF = 0;
+		asm volatile("jmp 0x7E00");
+	#elif defined(__AVR_AT90USB646__)              // Teensy++ 1.0
+		EIMSK = 0; PCICR = 0; SPCR = 0; ACSR = 0; EECR = 0; ADCSRA = 0;
+		TIMSK0 = 0; TIMSK1 = 0; TIMSK2 = 0; TIMSK3 = 0; UCSR1B = 0; TWCR = 0;
+		DDRA = 0; DDRB = 0; DDRC = 0; DDRD = 0; DDRE = 0; DDRF = 0;
+		PORTA = 0; PORTB = 0; PORTC = 0; PORTD = 0; PORTE = 0; PORTF = 0;
+		asm volatile("jmp 0xFC00");
+	#elif defined(__AVR_AT90USB1286__)             // Teensy++ 2.0
+		EIMSK = 0; PCICR = 0; SPCR = 0; ACSR = 0; EECR = 0; ADCSRA = 0;
+		TIMSK0 = 0; TIMSK1 = 0; TIMSK2 = 0; TIMSK3 = 0; UCSR1B = 0; TWCR = 0;
+		DDRA = 0; DDRB = 0; DDRC = 0; DDRD = 0; DDRE = 0; DDRF = 0;
+		PORTA = 0; PORTB = 0; PORTC = 0; PORTD = 0; PORTE = 0; PORTF = 0;
+		asm volatile("jmp 0x1FC00");
+	#endif 
+}
