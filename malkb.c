@@ -136,7 +136,6 @@ int main(void)
 
 void kb_loop(void)
 {   
-    // Main keyboard loop
     while (1) {
         
 		// Save the last key state
