@@ -325,7 +325,7 @@ int8_t usb_keyboard_send(void)
 		cli();
 		UENUM = KEYBOARD_ENDPOINT;
 	}
-	UEDATX = keyboard_modifier_keys;
+    UEDATX = keyboard_modifier_keys;
 	UEDATX = 0;
 	for (i=0; i<6; i++) {
 		UEDATX = keyboard_keys[i];
@@ -349,7 +349,7 @@ int8_t usb_keyboard_send(void)
 //
 ISR(USB_GEN_vect)
 {
-	uint8_t intbits, t, i;
+	uint8_t intbits, i;
 	static uint8_t div4=0;
 
         intbits = UDINT;

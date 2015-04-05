@@ -25,15 +25,14 @@
 #include <avr/interrupt.h>
 #include <util/delay.h>
 #include <string.h>
-#include "usb_keyboard.h"
 #include "malkb.h"
 
 // --------- DEFINES ----------------------------------------------------------
 
 // Onboard LED, useful for debugging
 #define LED_CONFIG	(DDRD |= (1<<6))
-#define LED_ON		(PORTD &= ~(1<<6))
-#define LED_OFF		(PORTD |= (1<<6))
+#define LED_OFF		(PORTD &= ~(1<<6))
+#define LED_ON		(PORTD |= (1<<6))
 
 #define CPU_PRESCALE(n)	(CLKPR = 0x80, CLKPR = (n))
 
@@ -41,36 +40,21 @@
 #define NUM_COLS 15
 #define NUM_LAYERS 2
 
-#define NUM_SIM_KEYS		6
-
 #define INIT_WAIT_MS 		1000
 #define DEBOUNCE_WAIT_MS 	2
-#define PIN_WAIT_US			2
-
-#define SET_LOW(port, pin) {port &= ~(1<<pin); _delay_us(PIN_WAIT_US);}
-#define SET_HIGH(port, pin) {port |= (1<<pin); _delay_us(PIN_WAIT_US);}
-#define CHECK_COL_FOR_ROW(port, pin, row, col) {port & (1<<pin) ? \
-	kb_set_row_col(row, col, true) : kb_set_row_col(row, col, false);}
+#define PIN_WAIT_US			30
 
 // ---- STRUCTURES -----------------------------------------------------------
 
-typedef struct keylist_t 
-{
-	uint8_t key[NUM_SIM_KEYS];
-	uint8_t count;
-	uint8_t free_index;
-} myKeyList;
-
 // ---- DEFINE LAYERS --------------------------------------------------------
 static const uint8_t layers[NUM_LAYERS][NUM_ROWS][NUM_COLS] = {
-    /* Layer 0 */
-    {{KEY_TILDE,      KEY_1,   KEY_2, KEY_3, KEY_4, KEY_5, KEY_6, KEY_7, KEY_8,     KEY_9,      KEY_0,         KEY_MINUS,       KEY_EQUAL,        KEY_BACKSPACE, 0},
-     {KEY_TAB,        KEY_Q,   KEY_W, KEY_E, KEY_R, KEY_T, KEY_Y, KEY_U, KEY_I,     KEY_O,      KEY_P,         KEY_LEFT_BRACE,  KEY_RIGHT_BRACE,  KEY_BACKSLASH, 0},
-     {KEY_FN0,        KEY_A,   KEY_S, KEY_D, KEY_F, KEY_G, KEY_H, KEY_J, KEY_K,     KEY_L,      KEY_SEMICOLON, KEY_QUOTE,       KEY_ENTER,        KEY_NONE, 0},
-     {KEY_LEFT_SHIFT, KEY_Z,   KEY_X, KEY_C, KEY_V, KEY_B, KEY_N, KEY_M, KEY_COMMA, KEY_PERIOD, KEY_SLASH,     KEY_RIGHT_SHIFT, KEY_NONE,         KEY_PAUSE, 0},
-     {KEY_LEFT_CTRL,  KEY_GUI, KEY_LEFT_ALT, KEY_SPACE,KEY_NONE,KEY_NONE,KEY_NONE,KEY_NONE,KEY_NONE,KEY_NONE,  KEY_RIGHT_ALT,   KEY_FN0, KEY_FN1, KEY_FN2, 0}},
-    
-    /* Layer 1 */
+/*     0       1     2     3     4     5     6     7     8     9     10    11     12     13     14 */
+     {{TLDE,   N1,   N2,   N3,   N4,   N5,   N6,   N7,   N8,   N9,   N0,   MIN,   EQL,   BSPC,  NONE},
+      {TAB,    Q,    W,    E,    R,    T,    Y,    U,    I,    O,    P,    LBRC,  RBRC,  BSLSH, NONE},
+      {FN0,    A,    S,    D,    F,    G,    H,    J,    K,    L,    SCOL, QUOT,  ENTR,  NONE,  NONE},
+      {LSHIFT, Z,    X,    C,    V,    B,    N,    M,    COMM, PRD,  SLSH, RSHIFT,NONE,  PAUS,  NONE},
+      {LCTRL,  LGUI, LALT, SPC,  NONE, NONE, NONE, NONE, NONE, NONE, RALT, FN0,   FN1,   FN2,   NONE}},
+
     {{0,0,0,0,0,0,0,0,0,0,0,0,0,0,0},
      {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0},
      {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0},
@@ -86,32 +70,46 @@ bool keys[NUM_ROWS][NUM_COLS];
 //! Last state of keys 
 bool keys_last[NUM_ROWS][NUM_COLS];
 
-//! Lists of current key codes
-struct keylist_t current_fns;
-struct keylist_t current_modifiers;
-struct keylist_t current_keys;
-
 //! The current layer we are on
 uint8_t current_layer = 0;
 
-// --------- KEYBOARD FUNCTIONS ----------------------------------------------
+// --------- KEYBOARD FUNCTION PROTOTYPES -------------------------------------
 void kb_loop(void);
 void kb_init(void);
+
 void kb_read_matrix(void);
-void kb_set_row_col(int row, int col, bool val);
-void kb_list_init(struct keylist_t* list);
-void kb_list_insert(struct keylist_t* list, uint8_t key);
-void kb_list_remove(struct keylist_t* list, uint8_t key);
+void kb_set_row_col(uint8_t row, uint8_t col, bool val);
+
+void check_columns_for_row(uint8_t row);
+void unselect_rows(void);
+void select_row(uint8_t row);
+
 void kb_resolve_fns(void);
 void kb_resolve_modifiers(void);
 void kb_resolve_keys(void);
 
-// --------- TEENSY FUNCTIONS ------------------------------------------------
+void kb_keys_insert(uint8_t key);
+void kb_keys_remove(uint8_t key);
+
+bool is_function(uint8_t key);
+bool is_modifier(uint8_t key);
+bool is_normal_key(uint8_t key);
+
+// --------- TEENSY FUNCTION PROTOTYPES ---------------------------------------
 void teensy_reboot(void);
 
 // ---- MAIN ENTRY POINT -----------------------------------------------------
 int main(void)
 {
+    LED_CONFIG;
+    uint8_t i;
+    for (i = 0; i < 5; i++) {
+        LED_ON;
+        _delay_ms(100);
+        LED_OFF;
+        _delay_ms(100);
+    }
+    
     // Set for 16 MHz clock
     CPU_PRESCALE(0);
 	
@@ -134,16 +132,26 @@ int main(void)
     return 0;
 }
 
+void all_off(void)
+{
+    uint8_t row, col;
+    for (row = 0; row < NUM_ROWS; row++) {
+        for (col = 0; col < NUM_COLS; col++) {
+            keys[row][col] = false;
+        }
+    }
+}
+
 void kb_loop(void)
-{   
+{
     while (1) {
         
 		// Save the last key state
 		memcpy(keys_last, keys, sizeof(keys_last) * NUM_ROWS * NUM_COLS);
-		
+        
         // Read the key matrix
         kb_read_matrix();
-		
+        
 		// Resolve key presses
 		kb_resolve_fns();
 		kb_resolve_modifiers();
@@ -159,184 +167,226 @@ void kb_loop(void)
 
 void kb_init(void)
 {
-	// Configure rows as outputs and set them low to start
-	DDRC  |=  ((1<<4) | (1<<3) | (1<<2) | (1<<1) | (1<<0));
-	PORTC &= ~((1<<4) | (1<<3) | (1<<2) | (1<<1) | (1<<0));
+	// Configure rows - outputs initially Hi-Z
+    // row: 0   1   2   3   4
+    // pin: D0  D1  D2  D3  D4
+    unselect_rows();
 	
-	// Configure columns as inputs 
-	DDRB &= ~((1<<7) | (1<<6) | (1<<5) | (1<<4) | (1<<3) | (1<<2) | (1<<1) | (1<<0));
-	DDRD &= ~((1<<6) | (1<<5) | (1<<4) | (1<<3) | (1<<2) | (1<<1) | (1<<0));
-	
-	// Configure the rest of the unused pins as outputs and set them low
-	DDRC  |=  ((1<<7) | (1<<6) | (1<<5));
-	PORTC &= ~((1<<7) | (1<<6) | (1<<5));
-	DDRD  |=  ((1<<7));
-	PORTD &= ~((1<<7));
-	DDRF  |=  ((1<<7) | (1<<6) | (1<<5) | (1<<4) | (1<<3) | (1<<2) | (1<<1) | (1<<0));
-	PORTF &= ~((1<<7) | (1<<6) | (1<<5) | (1<<4) | (1<<3) | (1<<2) | (1<<1) | (1<<0));
+    // Configure columns - inputs with internal pull-up resistors
+    // col: 0   1   2   3   4   5   6   7   8   9   10  11  12  13  14
+    // pin: F0  F1  F4  C7  C6  B6  D5  B1  B0  B5  B4  D7  D5  B3  F5
+	DDRB &= ~((1<<7) | (1<<6) | (1<<5) | (1<<4) | (1<<3) | (1<<1) | (1<<0));
+    PORTB |= ((1<<7) | (1<<6) | (1<<5) | (1<<4) | (1<<3) | (1<<1) | (1<<0));
+    DDRC &= ~((1<<7) | (1<<6));
+    PORTC |= ((1<<7) | (1<<6));
+	DDRD &= ~((1<<7) | (1<<5));
+    PORTD |= ((1<<7) | (1<<5));
+    DDRF &= ~((1<<5) | (1<<4) | (1<<1) | (1<<0));
+    PORTF |= ((1<<5) | (1<<4) | (1<<1) | (1<<0));
 	
 	// Initialize key lists
-	kb_list_init(&current_fns);
-	kb_list_init(&current_keys);
-	kb_list_init(&current_modifiers);
+    memset(&keyboard_modifier_keys, 0, sizeof(keyboard_modifier_keys));
+    memset(&keyboard_keys, 0, sizeof(keyboard_keys));
 	
 	memset(keys, 0, sizeof(keys[0][0] * NUM_ROWS * NUM_COLS));
-	memset(keys, 0, sizeof(keys[0][0] * NUM_ROWS * NUM_COLS));
-}
-
-void kb_set_row_col(int row, int col, bool val) 
-{
-	keys[row][col] = val;
+	memset(keys_last, 0, sizeof(keys[0][0] * NUM_ROWS * NUM_COLS));
 }
 
 void kb_read_matrix(void)
 {
-	// This is not elegant, but it is fast and reliable. We can loop through
-	// the rows because they are all on the same port, and then check each 
-	// columns against that row.
-	
-	int row, col;
+    uint8_t row;
 	for (row = 0; row < NUM_ROWS; row++) {
-		col = 0;
-		SET_HIGH(PORTC, row);
-		CHECK_COL_FOR_ROW(DDRB, 0, row, col++);
-		CHECK_COL_FOR_ROW(DDRB, 1, row, col++);
-		CHECK_COL_FOR_ROW(DDRB, 2, row, col++);
-		CHECK_COL_FOR_ROW(DDRB, 3, row, col++);
-		CHECK_COL_FOR_ROW(DDRB, 4, row, col++);
-		CHECK_COL_FOR_ROW(DDRB, 5, row, col++);
-		CHECK_COL_FOR_ROW(DDRB, 6, row, col++);
-		CHECK_COL_FOR_ROW(DDRB, 7, row, col++);
-		CHECK_COL_FOR_ROW(DDRD, 0, row, col++);
-		CHECK_COL_FOR_ROW(DDRD, 1, row, col++);
-		CHECK_COL_FOR_ROW(DDRD, 2, row, col++);
-		CHECK_COL_FOR_ROW(DDRD, 3, row, col++);
-		CHECK_COL_FOR_ROW(DDRD, 4, row, col++);
-		CHECK_COL_FOR_ROW(DDRD, 5, row, col++);
-		CHECK_COL_FOR_ROW(DDRD, 6, row, col++);
-		SET_LOW(PORTC, row);
-	}
+        select_row(row);
+        check_columns_for_row(row);
+        unselect_rows();
+    }
 }
 
-/*
-// modifiers OR'd together
-extern uint8_t keyboard_modifier_keys;
-
-// up to 6 keycodes
-extern uint8_t keyboard_keys[6];
-*/
-
-bool IS_MODIFIER(uint8_t key)
+void check_columns_for_row(uint8_t row)
 {
-	if (key == KEY_CTRL || key == KEY_SHIFT || key == KEY_ALT ||
-		key == KEY_GUI || key == KEY_LEFT_CTRL || key == KEY_LEFT_ALT ||
-		key == KEY_LEFT_GUI || key == KEY_RIGHT_CTRL || key == KEY_RIGHT_SHIFT ||
-		key == KEY_RIGHT_ALT || key == KEY_RIGHT_GUI) {
-		return true;
-	} else {
-		return false;	
-	}
+    // A switch is on when it's pin is also pulled to ground
+    PINF & (1<<0) ? kb_set_row_col(row, 0, false) : kb_set_row_col(row, 0, true);
+    PINF & (1<<1) ? kb_set_row_col(row, 1, false) : kb_set_row_col(row, 1, true);
+    PINF & (1<<4) ? kb_set_row_col(row, 2, false) : kb_set_row_col(row, 2, true);
+    PINC & (1<<7) ? kb_set_row_col(row, 3, false) : kb_set_row_col(row, 3, true);
+    PINC & (1<<6) ? kb_set_row_col(row, 4, false) : kb_set_row_col(row, 4, true);
+    PINB & (1<<6) ? kb_set_row_col(row, 5, false) : kb_set_row_col(row, 5, true);
+    PIND & (1<<5) ? kb_set_row_col(row, 6, false) : kb_set_row_col(row, 6, true);
+    PINB & (1<<1) ? kb_set_row_col(row, 7, false) : kb_set_row_col(row, 7, true);
+    PINB & (1<<0) ? kb_set_row_col(row, 8, false) : kb_set_row_col(row, 8, true);
+    PINB & (1<<5) ? kb_set_row_col(row, 9, false) : kb_set_row_col(row, 9, true);
+    PINB & (1<<4) ? kb_set_row_col(row, 10, false) : kb_set_row_col(row, 10, true);
+    PIND & (1<<7) ? kb_set_row_col(row, 11, false) : kb_set_row_col(row, 11, true);
+    PIND & (1<<5) ? kb_set_row_col(row, 12, false) : kb_set_row_col(row, 12, true);
+    PINB & (1<<3) ? kb_set_row_col(row, 13, false) : kb_set_row_col(row, 13, true);
+    PINF & (1<<5) ? kb_set_row_col(row, 14, false) : kb_set_row_col(row, 14, true);
 }
 
-bool IS_FUNCTION(uint8_t key)
+void unselect_rows(void)
 {
-	return (((key == KEY_FN0) || (key == KEY_FN1) || (key == KEY_FN2)) ? true : false);
+    // Hi-Z (floating)
+    DDRD  &= ~0b00011111;
+    PORTD &= ~0b00011111;
+    _delay_us(PIN_WAIT_US);
 }
+
+void select_row(uint8_t row)
+{
+    // Pull selected pin to ground
+    switch (row) {
+        case 0:
+            DDRD  |=  (1<<0);
+            PORTD &= ~(1<<0);
+            break;
+        case 1:
+            DDRD  |=  (1<<1);
+            PORTD &= ~(1<<1);
+            break;
+        case 2:
+            DDRD  |=  (1<<2);
+            PORTD &= ~(1<<2);
+            break;
+        case 3:
+            DDRD  |=  (1<<3);
+            PORTD &= ~(1<<3);
+            break;
+        case 4:
+            DDRD  |=  (1<<4);
+            PORTD &= ~(1<<4);
+            break;
+    }
+    _delay_us(PIN_WAIT_US);
+}
+
+
+void kb_set_row_col(uint8_t row, uint8_t col, bool val)
+{
+    keys[row][col] = val;
+}
+
+// --------- RESOLVE KEY PRESSES ---------------------------------------
 
 void kb_resolve_fns(void)
 {
-	uint8_t row, col;
-	
-	// Loop over each row and column in key matrix
-	for (row = 0; row < NUM_ROWS; row++) {
-		for (col = 0; col < NUM_COLS; col++) {
-			if (IS_FUNCTION(layers[0][row][col])) {
-				if (keys[row][col] != keys_last[row][col]) {
-					current_layer = 1;
-				} else {
-					current_layer = 0;
-				}
-				return; // done after first function found
-			} 
-		}
-	}
+    uint8_t row, col;
+    
+    for (row = 0; row < NUM_ROWS; row++) {
+        for (col = 0; col < NUM_COLS; col++) {
+            
+            uint8_t key = layers[0][row][col];
+            uint8_t state = keys[row][col];
+            uint8_t last_state = keys_last[row][col];
+            
+            if (is_function(key) && (state != last_state)) {
+                
+                if (state == true) {
+                    current_layer = 1;
+                } else {
+                    current_layer = 0;
+                }
+                
+            }
+        }
+    }
 }
 
 void kb_resolve_modifiers(void)
 {
-	uint8_t row, col;
-	
-	// Loop over each row and column in key matrix
-	for (row = 0; row < NUM_ROWS; row++) {
-		for (col = 0; col < NUM_COLS; col++) {
-			if (IS_MODIFIER(layers[current_layer][row][col])) {
-				if (keys[row][col] != keys_last[row][col]) {
-					keyboard_modifier_keys |= layers[current_layer][row][col];
-				} else {
-					keyboard_modifier_keys &= ~(layers[current_layer][row][col]);
-				}
-			} 
-		}
-	}
+    uint8_t row, col;
+    
+    keyboard_modifier_keys = 0;
+    
+    for (row = 0; row < NUM_ROWS; row++) {
+        for (col = 0; col < NUM_COLS; col++) {
+            
+            uint8_t key = layers[0][row][col];
+            uint8_t state = keys[row][col];
+            uint8_t last_state = keys_last[row][col];
+            
+            if (is_modifier(key) && (state != last_state)) {
+                
+                if (state == true) {
+                    keyboard_modifier_keys |= TO_MOD(layers[current_layer][row][col]);
+                }
+            }
+        }
+    }
 }
 
 void kb_resolve_keys(void)
 {
-	uint8_t row, col, i;
-	
-	// Loop over each row and column in key matrix
-	for (row = 0; row < NUM_ROWS; row++) {
-		for (col = 0; col < NUM_COLS; col++) {
-			if (!IS_MODIFIER(layers[current_layer][row][col]) &&
-				!IS_FUNCTION(layers[current_layer][row][col])) {
-				if (keys[row][col] != keys_last[row][col]) {
-					kb_list_insert(&current_keys, layers[current_layer][row][col]);
-				} else {
-					kb_list_remove(&current_keys, layers[current_layer][row][col]);
-				}
-			} 
-		}
-	}
-	
-	for (i = 0; i < current_keys.count && i < sizeof(keyboard_keys); i++) {
-		keyboard_keys[i] = current_keys.key[i];
-	}
+    uint8_t row, col;
+    
+    for (row = 0; row < NUM_ROWS; row++) {
+        for (col = 0; col < NUM_COLS; col++) {
+            
+            uint8_t key = layers[current_layer][row][col];
+            uint8_t state = keys[row][col];
+            uint8_t last_state = keys_last[row][col];
+            
+            if (is_normal_key(key) && (state != last_state)) {
+                
+                if (state == true) {
+                    kb_keys_insert(key);
+                } else {
+                    kb_keys_remove(key);
+                }
+            }
+        }
+    }
 }
 
-void kb_list_insert(struct keylist_t* list, uint8_t key)
+inline bool is_modifier(uint8_t key)
 {
-	if (list == 0) return;
-	
-	if (list->free_index >= sizeof(list->key)) {
-		return;
-	}
-	
-	list->key[list->free_index++] = key;
-	list->count++;
+	if (key == LCTRL || key == LSHIFT || key == LALT || key == LGUI ||
+        key == RCTRL || key == RSHIFT || key == RALT || key == RGUI) {
+        return true;
+    } else {
+        return false;
+    }
 }
 
-void kb_list_remove(struct keylist_t* list, uint8_t key)
+inline bool is_function(uint8_t key)
 {
-	if (list == 0) return;
-	
-	uint8_t i;
-	for (i = 0; i < sizeof(list->key); i++) {
-		if (list->key[i] == key) {
-			list->key[i] = 0;
-			list->free_index = i;
-			list->count--;
-		}
-	}
+	return (((key == FN0) || (key == FN1) || (key == FN2)) ? true : false);
 }
 
-void kb_list_init(struct keylist_t* list)
+inline bool is_normal_key(uint8_t key)
 {
-	if (list == 0) return;
-	
-	memset(list->key, 0, sizeof(list->key));
-	list->count = 0;
-	list->free_index = 0;
+    if ((is_modifier(key) == false) && (is_function(key) == false)) return true;
+    else return false;
 }
+
+uint8_t free_index = 0;
+void kb_keys_insert(uint8_t key)
+{
+    uint8_t i;
+    
+    if (free_index >= sizeof(keyboard_keys)) {
+        return;
+    }
+    
+    for (i = 0; i < sizeof(keyboard_keys); i++) {
+        if (keyboard_keys[i] == 0) {
+            free_index = i;
+        }
+    }
+    
+    keyboard_keys[free_index] = key;
+}
+
+void kb_keys_remove(uint8_t key)
+{
+    uint8_t i;
+    for (i = 0; i < sizeof(keyboard_keys); i++) {
+        if (keyboard_keys[i] == key) {
+            keyboard_keys[i] = 0;
+            free_index = i;
+        }
+    }
+}
+
+// -----------------------------------------------------------------
 
 void teensy_reboot(void)
 {
