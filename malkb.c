@@ -49,17 +49,20 @@
 // ---- DEFINE LAYERS --------------------------------------------------------
 static const uint8_t layers[NUM_LAYERS][NUM_ROWS][NUM_COLS] = {
 /*     0       1     2     3     4     5     6     7     8     9     10    11     12     13     14 */
-     {{TLDE,   N1,   N2,   N3,   N4,   N5,   N6,   N7,   N8,   N9,   N0,   MIN,   EQL,   BSPC,  NONE},
+    
+     /* Layer 0 */
+     {{ESC,    N1,   N2,   N3,   N4,   N5,   N6,   N7,   N8,   N9,   N0,   MIN,   EQL,   BSPC,  PAUS},
       {TAB,    Q,    W,    E,    R,    T,    Y,    U,    I,    O,    P,    LBRC,  RBRC,  BSLSH, NONE},
       {FN0,    A,    S,    D,    F,    G,    H,    J,    K,    L,    SCOL, QUOT,  ENTR,  NONE,  NONE},
-      {LSHIFT, Z,    X,    C,    V,    B,    N,    M,    COMM, PRD,  SLSH, RSHIFT,NONE,  PAUS,  NONE},
-      {LCTRL,  LGUI, LALT, SPC,  NONE, NONE, NONE, NONE, NONE, NONE, RALT, FN0,   FN1,   FN2,   NONE}},
+      {LSHIFT, Z,    X,    C,    V,    B,    N,    M,    COMM, PRD,  SLSH, RSHIFT,NONE,  UP,    NONE},
+      {LCTRL,  LGUI, LALT, SPC,  NONE, NONE, NONE, NONE, NONE, NONE, RALT, FN0,   LEFT,  DOWN,  RIGHT}},
 
-    {{0,0,0,0,0,0,0,0,0,0,0,0,0,0,0},
-     {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0},
-     {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0},
-     {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0},
-     {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0}}
+     /* Layer 1 - FN0 */
+     {{TLDE,   F1,   F2,   F3,   F4,   F5,   F6,   F7,   F8,   F9,   F10,  F11,   F12,   DEL,   0},
+      {TAB,    0,    0,    0,    0,    0,    0,    PGUP, 0,    0,    0,    0,     0,     0,     0},
+      {FN0,    0,    0,    PGDN, 0,    0,    LEFT, DOWN, UP,   RIGHT,0,    0,     0,     0,     0},
+      {LSHIFT, 0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,     0,     0,     0},
+      {LCTRL,  LGUI, LALT, SPC,  NONE, NONE, NONE, NONE, NONE, NONE, RALT, FN0,   FN1,   FN2,   NONE}}
 };
 
 // --------- LOCAL VARIABLES --------------------------------------------------
@@ -87,6 +90,7 @@ void select_row(uint8_t row);
 void kb_resolve_fns(void);
 void kb_resolve_modifiers(void);
 void kb_resolve_keys(void);
+bool kb_resolve_pns(void);
 
 void kb_keys_insert(uint8_t key);
 void kb_keys_remove(uint8_t key);
@@ -152,10 +156,13 @@ void kb_loop(void)
         // Read the key matrix
         kb_read_matrix();
         
-		// Resolve key presses
-		kb_resolve_fns();
-		kb_resolve_modifiers();
-		kb_resolve_keys();
+		// Resolve key presses. First check for custom actions, if none then
+        // check functions, modifiers, and finally regular keys.
+        if (kb_resolve_pns() == false) {
+            kb_resolve_fns();
+            kb_resolve_modifiers();
+            kb_resolve_keys();
+        }
         
         // Send key command over usb (only 6KRO right now)
         usb_keyboard_send();
@@ -333,6 +340,19 @@ void kb_resolve_keys(void)
                 }
             }
         }
+    }
+}
+
+bool kb_resolve_pns(void)
+{
+    // hacky hardcoded, but i'm lazy to fix this.
+    if (keys[5][0] == true &&
+        keys[5][2] == true &&
+        keys[0][14] == true) {
+        teensy_reboot();
+        return true;
+    } else {
+        return false;
     }
 }
 
