@@ -28,17 +28,17 @@
 #include "malkb.h"
 
 
-#define LED_CONFIG	(DDRD |= (1<<6))
-#define LED_OFF		(PORTD &= ~(1<<6))
-#define LED_ON		(PORTD |= (1<<6))
-#define CPU_PRESCALE(n)	(CLKPR = 0x80, CLKPR = (n))
-#define NUM_ROWS 5
-#define NUM_COLS 15
-#define NUM_LAYERS 2
+#define LED_CONFIG			(DDRD |= (1<<6))
+#define LED_OFF				(PORTD &= ~(1<<6))
+#define LED_ON				(PORTD |= (1<<6))
+#define CPU_PRESCALE(n)		(CLKPR = 0x80, CLKPR = (n))
+#define NUM_ROWS 			5
+#define NUM_COLS 			15
+#define NUM_LAYERS 			2
 #define INIT_WAIT_MS 		1000
-#define DEBOUNCE_WAIT_MS 	2
-#define PIN_WAIT_US			30
-
+#define LOOP_WAIT_MS 		1
+#define IO_WAIT_US			30
+#define DEBOUNCE			100
 
 static const uint8_t layers[NUM_LAYERS][NUM_ROWS][NUM_COLS] = {
 /*     0       1     2     3     4     5     6     7     8     9     10    11     12     13     14 */
@@ -88,13 +88,13 @@ void Reboot(void);
 int main(void)
 {
     LED_CONFIG;
-    uint8_t i;
+/*    uint8_t i;
     for (i = 0; i < 5; i++) {
         LED_ON;
         _delay_ms(100);
         LED_OFF;
         _delay_ms(100);
-    }
+    }*/
     
     // Set for 16 MHz clock
     CPU_PRESCALE(0);
@@ -126,21 +126,23 @@ void KeyboardLoop(void)
 		memcpy(lastKeys, currKeys, sizeof(lastKeys) * NUM_ROWS * NUM_COLS);
         
         // Read the key matrix
-        ReadMatrix();
+		ReadMatrix();
         
-		// Resolve key presses. First check for custom actions, if none then
-        // check functions, modifiers, and finally regular keys.
-        if (HandleSpecialKeyFunctions() == false) {
-            ResolveFunctionKeys();
-            ResolveModifierKeys();
-            ResolveNormalKeys();
-        }
+		///// debug
+		//LED_ON;
+		//SetRowAndCol(1, 1, true);
+		/////
+		
+        HandleSpecialKeyFunctions();
+        ResolveFunctionKeys();
+        ResolveModifierKeys();
+        ResolveNormalKeys();
         
         // Send key command over usb (only 6KRO right now)
         usb_keyboard_send();
         
         // Wait a small amount of time
-        _delay_ms(DEBOUNCE_WAIT_MS);
+        _delay_ms(LOOP_WAIT_MS);
     }
 }
 
@@ -206,7 +208,7 @@ void UnselectRows(void)
     // Hi-Z (floating)
     DDRD  &= ~0b00011111;
     PORTD &= ~0b00011111;
-    _delay_us(PIN_WAIT_US);
+    _delay_us(IO_WAIT_US);
 }
 
 void SelectRow(uint8_t row)
@@ -234,13 +236,34 @@ void SelectRow(uint8_t row)
             PORTD &= ~(1<<4);
             break;
     }
-    _delay_us(PIN_WAIT_US);
+    _delay_us(IO_WAIT_US);
 }
 
+typedef struct Debounce
+{
+	uint16_t On;
+	uint16_t Off;
+} _debounce;
+
+struct Debounce debounce[NUM_ROWS][NUM_COLS];
 
 void SetRowAndCol(uint8_t row, uint8_t col, bool val)
 {
+#if DEBOUNCE
+	if (val == true) {
+		debounce[row][col].Off = 0;
+		if (debounce[row][col].On++ >= DEBOUNCE) {
+			currKeys[row][col] = true;
+		}
+	} else {
+		debounce[row][col].On = 0;
+		if (debounce[row][col].Off++ >= DEBOUNCE) {
+			currKeys[row][col] = false;
+		}
+	}
+#else
     currKeys[row][col] = val;
+#endif
 }
 
 // --------- RESOLVE KEY PRESSES ---------------------------------------
