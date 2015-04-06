@@ -27,26 +27,19 @@
 #include <string.h>
 #include "malkb.h"
 
-// --------- DEFINES ----------------------------------------------------------
 
-// Onboard LED, useful for debugging
 #define LED_CONFIG	(DDRD |= (1<<6))
 #define LED_OFF		(PORTD &= ~(1<<6))
 #define LED_ON		(PORTD |= (1<<6))
-
 #define CPU_PRESCALE(n)	(CLKPR = 0x80, CLKPR = (n))
-
 #define NUM_ROWS 5
 #define NUM_COLS 15
 #define NUM_LAYERS 2
-
 #define INIT_WAIT_MS 		1000
 #define DEBOUNCE_WAIT_MS 	2
 #define PIN_WAIT_US			30
 
-// ---- STRUCTURES -----------------------------------------------------------
 
-// ---- DEFINE LAYERS --------------------------------------------------------
 static const uint8_t layers[NUM_LAYERS][NUM_ROWS][NUM_COLS] = {
 /*     0       1     2     3     4     5     6     7     8     9     10    11     12     13     14 */
     
@@ -65,44 +58,33 @@ static const uint8_t layers[NUM_LAYERS][NUM_ROWS][NUM_COLS] = {
       {LCTRL,  LGUI, LALT, SPC,  NONE, NONE, NONE, NONE, NONE, NONE, RALT, FN0,   FN1,   FN2,   NONE}}
 };
 
-// --------- LOCAL VARIABLES --------------------------------------------------
-
 //! Current state of the keys
-bool keys[NUM_ROWS][NUM_COLS];
+bool currKeys[NUM_ROWS][NUM_COLS];
 
 //! Last state of keys 
-bool keys_last[NUM_ROWS][NUM_COLS];
+bool lastKeys[NUM_ROWS][NUM_COLS];
 
 //! The current layer we are on
-uint8_t current_layer = 0;
+uint8_t currLayer = 0;
 
-// --------- KEYBOARD FUNCTION PROTOTYPES -------------------------------------
-void kb_loop(void);
-void kb_init(void);
+void KeyboardLoop(void);
+void KeyboardInit(void);
+void ReadMatrix(void);
+void SetRowAndCol(uint8_t row, uint8_t col, bool val);
+void CheckColForRow(uint8_t row);
+void UnselectRows(void);
+void SelectRow(uint8_t row);
+void ResolveFunctionKeys(void);
+void ResolveModifierKeys(void);
+void ResolveNormalKeys(void);
+bool HandleSpecialKeyFunctions(void);
+void InsertKey(uint8_t key);
+void RemoveKey(uint8_t key);
+bool IsFunctionKey(uint8_t key);
+bool IsModifierKey(uint8_t key);
+bool IsNormalKey(uint8_t key);
+void Reboot(void);
 
-void kb_read_matrix(void);
-void kb_set_row_col(uint8_t row, uint8_t col, bool val);
-
-void check_columns_for_row(uint8_t row);
-void unselect_rows(void);
-void select_row(uint8_t row);
-
-void kb_resolve_fns(void);
-void kb_resolve_modifiers(void);
-void kb_resolve_keys(void);
-bool kb_resolve_pns(void);
-
-void kb_keys_insert(uint8_t key);
-void kb_keys_remove(uint8_t key);
-
-bool is_function(uint8_t key);
-bool is_modifier(uint8_t key);
-bool is_normal_key(uint8_t key);
-
-// --------- TEENSY FUNCTION PROTOTYPES ---------------------------------------
-void teensy_reboot(void);
-
-// ---- MAIN ENTRY POINT -----------------------------------------------------
 int main(void)
 {
     LED_CONFIG;
@@ -118,7 +100,7 @@ int main(void)
     CPU_PRESCALE(0);
 	
 	// Setup the keyboard
-    kb_init();
+    KeyboardInit();
     
     // Initialize the USB, and then wait for the host to set configuration.
     // If the Teensy is powered without a PC connected to the USB port,
@@ -131,53 +113,43 @@ int main(void)
     _delay_ms(INIT_WAIT_MS);
     
     // Main loop
-    kb_loop();
+    KeyboardLoop();
     
     return 0;
 }
 
-void all_off(void)
-{
-    uint8_t row, col;
-    for (row = 0; row < NUM_ROWS; row++) {
-        for (col = 0; col < NUM_COLS; col++) {
-            keys[row][col] = false;
-        }
-    }
-}
-
-void kb_loop(void)
+void KeyboardLoop(void)
 {
     while (1) {
         
 		// Save the last key state
-		memcpy(keys_last, keys, sizeof(keys_last) * NUM_ROWS * NUM_COLS);
+		memcpy(lastKeys, currKeys, sizeof(lastKeys) * NUM_ROWS * NUM_COLS);
         
         // Read the key matrix
-        kb_read_matrix();
+        ReadMatrix();
         
 		// Resolve key presses. First check for custom actions, if none then
         // check functions, modifiers, and finally regular keys.
-        if (kb_resolve_pns() == false) {
-            kb_resolve_fns();
-            kb_resolve_modifiers();
-            kb_resolve_keys();
+        if (HandleSpecialKeyFunctions() == false) {
+            ResolveFunctionKeys();
+            ResolveModifierKeys();
+            ResolveNormalKeys();
         }
         
         // Send key command over usb (only 6KRO right now)
         usb_keyboard_send();
         
-        // Wait a small amount of time to debounce
+        // Wait a small amount of time
         _delay_ms(DEBOUNCE_WAIT_MS);
     }
 }
 
-void kb_init(void)
+void KeyboardInit(void)
 {
 	// Configure rows - outputs initially Hi-Z
     // row: 0   1   2   3   4
     // pin: D0  D1  D2  D3  D4
-    unselect_rows();
+    UnselectRows();
 	
     // Configure columns - inputs with internal pull-up resistors
     // col: 0   1   2   3   4   5   6   7   8   9   10  11  12  13  14
@@ -195,41 +167,41 @@ void kb_init(void)
     memset(&keyboard_modifier_keys, 0, sizeof(keyboard_modifier_keys));
     memset(&keyboard_keys, 0, sizeof(keyboard_keys));
 	
-	memset(keys, 0, sizeof(keys[0][0] * NUM_ROWS * NUM_COLS));
-	memset(keys_last, 0, sizeof(keys[0][0] * NUM_ROWS * NUM_COLS));
+	memset(currKeys, 0, sizeof(currKeys[0][0] * NUM_ROWS * NUM_COLS));
+	memset(lastKeys, 0, sizeof(lastKeys[0][0] * NUM_ROWS * NUM_COLS));
 }
 
-void kb_read_matrix(void)
+void ReadMatrix(void)
 {
     uint8_t row;
 	for (row = 0; row < NUM_ROWS; row++) {
-        select_row(row);
-        check_columns_for_row(row);
-        unselect_rows();
+        SelectRow(row);
+        CheckColForRow(row);
+        UnselectRows();
     }
 }
 
-void check_columns_for_row(uint8_t row)
+void CheckColForRow(uint8_t row)
 {
     // A switch is on when it's pin is also pulled to ground
-    PINF & (1<<0) ? kb_set_row_col(row, 0, false) : kb_set_row_col(row, 0, true);
-    PINF & (1<<1) ? kb_set_row_col(row, 1, false) : kb_set_row_col(row, 1, true);
-    PINF & (1<<4) ? kb_set_row_col(row, 2, false) : kb_set_row_col(row, 2, true);
-    PINC & (1<<7) ? kb_set_row_col(row, 3, false) : kb_set_row_col(row, 3, true);
-    PINC & (1<<6) ? kb_set_row_col(row, 4, false) : kb_set_row_col(row, 4, true);
-    PINB & (1<<6) ? kb_set_row_col(row, 5, false) : kb_set_row_col(row, 5, true);
-    PIND & (1<<5) ? kb_set_row_col(row, 6, false) : kb_set_row_col(row, 6, true);
-    PINB & (1<<1) ? kb_set_row_col(row, 7, false) : kb_set_row_col(row, 7, true);
-    PINB & (1<<0) ? kb_set_row_col(row, 8, false) : kb_set_row_col(row, 8, true);
-    PINB & (1<<5) ? kb_set_row_col(row, 9, false) : kb_set_row_col(row, 9, true);
-    PINB & (1<<4) ? kb_set_row_col(row, 10, false) : kb_set_row_col(row, 10, true);
-    PIND & (1<<7) ? kb_set_row_col(row, 11, false) : kb_set_row_col(row, 11, true);
-    PIND & (1<<5) ? kb_set_row_col(row, 12, false) : kb_set_row_col(row, 12, true);
-    PINB & (1<<3) ? kb_set_row_col(row, 13, false) : kb_set_row_col(row, 13, true);
-    PINF & (1<<5) ? kb_set_row_col(row, 14, false) : kb_set_row_col(row, 14, true);
+    PINF & (1<<0) ? SetRowAndCol(row, 0, false) : SetRowAndCol(row, 0, true);
+    PINF & (1<<1) ? SetRowAndCol(row, 1, false) : SetRowAndCol(row, 1, true);
+    PINF & (1<<4) ? SetRowAndCol(row, 2, false) : SetRowAndCol(row, 2, true);
+    PINC & (1<<7) ? SetRowAndCol(row, 3, false) : SetRowAndCol(row, 3, true);
+    PINC & (1<<6) ? SetRowAndCol(row, 4, false) : SetRowAndCol(row, 4, true);
+    PINB & (1<<6) ? SetRowAndCol(row, 5, false) : SetRowAndCol(row, 5, true);
+    PIND & (1<<5) ? SetRowAndCol(row, 6, false) : SetRowAndCol(row, 6, true);
+    PINB & (1<<1) ? SetRowAndCol(row, 7, false) : SetRowAndCol(row, 7, true);
+    PINB & (1<<0) ? SetRowAndCol(row, 8, false) : SetRowAndCol(row, 8, true);
+    PINB & (1<<5) ? SetRowAndCol(row, 9, false) : SetRowAndCol(row, 9, true);
+    PINB & (1<<4) ? SetRowAndCol(row, 10, false) : SetRowAndCol(row, 10, true);
+    PIND & (1<<7) ? SetRowAndCol(row, 11, false) : SetRowAndCol(row, 11, true);
+    PIND & (1<<5) ? SetRowAndCol(row, 12, false) : SetRowAndCol(row, 12, true);
+    PINB & (1<<3) ? SetRowAndCol(row, 13, false) : SetRowAndCol(row, 13, true);
+    PINF & (1<<5) ? SetRowAndCol(row, 14, false) : SetRowAndCol(row, 14, true);
 }
 
-void unselect_rows(void)
+void UnselectRows(void)
 {
     // Hi-Z (floating)
     DDRD  &= ~0b00011111;
@@ -237,7 +209,7 @@ void unselect_rows(void)
     _delay_us(PIN_WAIT_US);
 }
 
-void select_row(uint8_t row)
+void SelectRow(uint8_t row)
 {
     // Pull selected pin to ground
     switch (row) {
@@ -266,14 +238,14 @@ void select_row(uint8_t row)
 }
 
 
-void kb_set_row_col(uint8_t row, uint8_t col, bool val)
+void SetRowAndCol(uint8_t row, uint8_t col, bool val)
 {
-    keys[row][col] = val;
+    currKeys[row][col] = val;
 }
 
 // --------- RESOLVE KEY PRESSES ---------------------------------------
 
-void kb_resolve_fns(void)
+void ResolveFunctionKeys(void)
 {
     uint8_t row, col;
     
@@ -281,15 +253,15 @@ void kb_resolve_fns(void)
         for (col = 0; col < NUM_COLS; col++) {
             
             uint8_t key = layers[0][row][col];
-            uint8_t state = keys[row][col];
-            uint8_t last_state = keys_last[row][col];
+            uint8_t state = currKeys[row][col];
+            uint8_t last_state = lastKeys[row][col];
             
-            if (is_function(key) && (state != last_state)) {
+            if (IsFunctionKey(key) && (state != last_state)) {
                 
                 if (state == true) {
-                    current_layer = 1;
+                    currLayer = 1;
                 } else {
-                    current_layer = 0;
+                    currLayer = 0;
                 }
                 
             }
@@ -297,7 +269,7 @@ void kb_resolve_fns(void)
     }
 }
 
-void kb_resolve_modifiers(void)
+void ResolveModifierKeys(void)
 {
     uint8_t row, col;
     
@@ -307,56 +279,56 @@ void kb_resolve_modifiers(void)
         for (col = 0; col < NUM_COLS; col++) {
             
             uint8_t key = layers[0][row][col];
-            uint8_t state = keys[row][col];
-            uint8_t last_state = keys_last[row][col];
+            uint8_t state = currKeys[row][col];
+            uint8_t last_state = lastKeys[row][col];
             
-            if (is_modifier(key) && (state != last_state)) {
+            if (IsModifierKey(key) && (state != last_state)) {
                 
                 if (state == true) {
-                    keyboard_modifier_keys |= TO_MOD(layers[current_layer][row][col]);
+                    keyboard_modifier_keys |= TO_MOD(layers[currLayer][row][col]);
                 }
             }
         }
     }
 }
 
-void kb_resolve_keys(void)
+void ResolveNormalKeys(void)
 {
     uint8_t row, col;
     
     for (row = 0; row < NUM_ROWS; row++) {
         for (col = 0; col < NUM_COLS; col++) {
             
-            uint8_t key = layers[current_layer][row][col];
-            uint8_t state = keys[row][col];
-            uint8_t last_state = keys_last[row][col];
+            uint8_t key = layers[currLayer][row][col];
+            uint8_t state = currKeys[row][col];
+            uint8_t last_state = lastKeys[row][col];
             
-            if (is_normal_key(key) && (state != last_state)) {
+            if (IsNormalKey(key) && (state != last_state)) {
                 
                 if (state == true) {
-                    kb_keys_insert(key);
+                    InsertKey(key);
                 } else {
-                    kb_keys_remove(key);
+                    RemoveKey(key);
                 }
             }
         }
     }
 }
 
-bool kb_resolve_pns(void)
+bool HandleSpecialKeyFunctions(void)
 {
     // hacky hardcoded, but i'm lazy to fix this.
-    if (keys[5][0] == true &&
-        keys[5][2] == true &&
-        keys[0][14] == true) {
-        teensy_reboot();
+    if (currKeys[5][0] == true &&
+        currKeys[5][2] == true &&
+        currKeys[0][14] == true) {
+        Reboot();
         return true;
     } else {
         return false;
     }
 }
 
-inline bool is_modifier(uint8_t key)
+inline bool IsModifierKey(uint8_t key)
 {
 	if (key == LCTRL || key == LSHIFT || key == LALT || key == LGUI ||
         key == RCTRL || key == RSHIFT || key == RALT || key == RGUI) {
@@ -366,19 +338,19 @@ inline bool is_modifier(uint8_t key)
     }
 }
 
-inline bool is_function(uint8_t key)
+inline bool IsFunctionKey(uint8_t key)
 {
 	return (((key == FN0) || (key == FN1) || (key == FN2)) ? true : false);
 }
 
-inline bool is_normal_key(uint8_t key)
+inline bool IsNormalKey(uint8_t key)
 {
-    if ((is_modifier(key) == false) && (is_function(key) == false)) return true;
+    if ((IsModifierKey(key) == false) && (IsFunctionKey(key) == false)) return true;
     else return false;
 }
 
 uint8_t free_index = 0;
-void kb_keys_insert(uint8_t key)
+void InsertKey(uint8_t key)
 {
     uint8_t i;
     
@@ -395,7 +367,7 @@ void kb_keys_insert(uint8_t key)
     keyboard_keys[free_index] = key;
 }
 
-void kb_keys_remove(uint8_t key)
+void RemoveKey(uint8_t key)
 {
     uint8_t i;
     for (i = 0; i < sizeof(keyboard_keys); i++) {
@@ -408,7 +380,7 @@ void kb_keys_remove(uint8_t key)
 
 // -----------------------------------------------------------------
 
-void teensy_reboot(void)
+void Reboot(void)
 {
 	cli();
 	// Disable watchdog and all peripherals, disable usb
