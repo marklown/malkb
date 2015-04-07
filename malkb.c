@@ -1,4 +1,4 @@
-/* MalKb
+/* malkb
  * Copyright (c) 2015 Mark Lown
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -40,50 +40,57 @@
 #define IO_WAIT_US			30
 #define DEBOUNCE			100
 
+typedef struct Debounce {
+	uint16_t On;
+	uint16_t Off;
+} _debounce;
+
 static const uint8_t layers[NUM_LAYERS][NUM_ROWS][NUM_COLS] = {
 /*     0       1     2     3     4     5     6     7     8     9     10    11     12     13     14 */
     
      /* Layer 0 */
-     {{ESC,    N1,   N2,   N3,   N4,   N5,   N6,   N7,   N8,   N9,   N0,   MIN,   EQL,   BSPC,  PAUS},
-      {TAB,    Q,    W,    E,    R,    T,    Y,    U,    I,    O,    P,    LBRC,  RBRC,  BSLSH, NONE},
-      {FN0,    A,    S,    D,    F,    G,    H,    J,    K,    L,    SCOL, QUOT,  ENTR,  NONE,  NONE},
+     {{TLDE,   N1,   N2,   N3,   N4,   N5,   N6,   N7,   N8,   N9,   N0,   MIN,   EQL,   BSPC,  NONE},
+      {TAB,    Q,    W,    E,    R,    T,    Y,    U,    I,    O,    P,    LBRC,  RBRC,  BSLSH, ESC},
+      {FN0,    A,    S,    D,    F,    G,    H,    J,    K,    L,    SCOL, QUOT,  ENTR,  NONE,  PAUS},
       {LSHIFT, Z,    X,    C,    V,    B,    N,    M,    COMM, PRD,  SLSH, RSHIFT,NONE,  UP,    NONE},
       {LCTRL,  LGUI, LALT, SPC,  NONE, NONE, NONE, NONE, NONE, NONE, RALT, FN0,   LEFT,  DOWN,  RIGHT}},
 
      /* Layer 1 - FN0 */
-     {{TLDE,   F1,   F2,   F3,   F4,   F5,   F6,   F7,   F8,   F9,   F10,  F11,   F12,   DEL,   0},
-      {TAB,    0,    0,    0,    0,    0,    0,    PGUP, 0,    0,    0,    0,     0,     0,     0},
-      {FN0,    0,    0,    PGDN, 0,    0,    LEFT, DOWN, UP,   RIGHT,0,    0,     0,     0,     0},
-      {LSHIFT, 0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,     0,     0,     0},
-      {LCTRL,  LGUI, LALT, SPC,  NONE, NONE, NONE, NONE, NONE, NONE, RALT, FN0,   FN1,   FN2,   NONE}}
+     {{ESC,    F1,   F2,   F3,   F4,   F5,   F6,   F7,   F8,   F9,   F10,  F11,   F12,   DEL,   NONE},
+      {TAB,    NONE, NONE, NONE, NONE, NONE, NONE, PGUP, NONE, NONE, NONE, NONE,  NONE,  NONE,  NONE},
+      {FN0,    NONE, NONE, PGDN, NONE, NONE, LEFT, DOWN, UP,   RIGHT,NONE, NONE,  NONE,  NONE,  NONE},
+      {LSHIFT, NONE, NONE, NONE, NONE, NONE, NONE, NONE, NONE, NONE, NONE, NONE,  NONE,  NONE,  NONE},
+      {LCTRL,  LGUI, LALT, SPC,  NONE, NONE, NONE, NONE, NONE, NONE, RALT, FN0,   NONE,  NONE,  NONE}}
 };
 
-//! Current state of the keys
-bool currKeys[NUM_ROWS][NUM_COLS];
+// ------ VARIABLES -------------------------------------------------------------------------------
 
-//! Last state of keys 
-bool lastKeys[NUM_ROWS][NUM_COLS];
+bool currKeys[NUM_ROWS][NUM_COLS];						// Current matrix state
+bool lastKeys[NUM_ROWS][NUM_COLS];						// Last matrix state
+uint8_t currLayer = 0;									// Current active layer
+struct Debounce debounce[NUM_ROWS][NUM_COLS];			// Current debounce state
 
-//! The current layer we are on
-uint8_t currLayer = 0;
+// ------ PROTOTYPES ------------------------------------------------------------------------------
 
-void KeyboardLoop(void);
-void KeyboardInit(void);
-void ReadMatrix(void);
-void SetRowAndCol(uint8_t row, uint8_t col, bool val);
-void CheckColForRow(uint8_t row);
-void UnselectRows(void);
-void SelectRow(uint8_t row);
-void ResolveFunctionKeys(void);
-void ResolveModifierKeys(void);
-void ResolveNormalKeys(void);
-bool HandleSpecialKeyFunctions(void);
-void InsertKey(uint8_t key);
-void RemoveKey(uint8_t key);
-bool IsFunctionKey(uint8_t key);
-bool IsModifierKey(uint8_t key);
-bool IsNormalKey(uint8_t key);
-void Reboot(void);
+void KeyboardLoop(void);								// Main loop
+void KeyboardInit(void);								// Init keyboard
+void ReadMatrix(void);									// Reads the keyboard matrix via teensy
+void SetRowAndCol(uint8_t row, uint8_t col, bool val);	// Sets the current matrix row, col state
+void CheckColForRow(uint8_t row);						// Check a columns for a given row
+void UnselectRows(void);								// Unselect all rows
+void SelectRow(uint8_t row);							// Select one row
+void ResolveFunctionKeys(void);							// Resolve function key presses
+void ResolveModifierKeys(void);							// Resolve modifier key presses
+void ResolveNormalKeys(void);							// Resolve normal key presses
+bool CustomKeyCombos(void);								// Handle custom key combos
+void InsertKey(uint8_t key);							// Insert a pressed key into the list
+void RemoveKey(uint8_t key);							// Remove a release key from the list
+bool IsFunctionKey(uint8_t key);						// Check if this is a function key
+bool IsModifierKey(uint8_t key);						// Check if this is a modifier key
+bool IsNormalKey(uint8_t key);							// Check if this is a normal key
+void Reboot(void);										// Jump to the bootloader
+
+// ------ MAIN ENTRY POINT ------------------------------------------------------------------------
 
 int main(void)
 {
@@ -133,7 +140,7 @@ void KeyboardLoop(void)
 		//SetRowAndCol(1, 1, true);
 		/////
 		
-        HandleSpecialKeyFunctions();
+        CustomKeyCombos();
         ResolveFunctionKeys();
         ResolveModifierKeys();
         ResolveNormalKeys();
@@ -165,12 +172,12 @@ void KeyboardInit(void)
     DDRF &= ~((1<<5) | (1<<4) | (1<<1) | (1<<0));
     PORTF |= ((1<<5) | (1<<4) | (1<<1) | (1<<0));
 	
-	// Initialize key lists
     memset(&keyboard_modifier_keys, 0, sizeof(keyboard_modifier_keys));
     memset(&keyboard_keys, 0, sizeof(keyboard_keys));
-	
-	memset(currKeys, 0, sizeof(currKeys[0][0] * NUM_ROWS * NUM_COLS));
-	memset(lastKeys, 0, sizeof(lastKeys[0][0] * NUM_ROWS * NUM_COLS));
+
+	memset(currKeys, 0, sizeof(currKeys[0][0]) * NUM_ROWS * NUM_COLS);
+	memset(lastKeys, 0, sizeof(lastKeys[0][0]) * NUM_ROWS * NUM_COLS);
+	memset(debounce, 0, sizeof(debounce[0][0]) * NUM_ROWS * NUM_COLS);
 }
 
 void ReadMatrix(void)
@@ -238,14 +245,6 @@ void SelectRow(uint8_t row)
     }
     _delay_us(IO_WAIT_US);
 }
-
-typedef struct Debounce
-{
-	uint16_t On;
-	uint16_t Off;
-} _debounce;
-
-struct Debounce debounce[NUM_ROWS][NUM_COLS];
 
 void SetRowAndCol(uint8_t row, uint8_t col, bool val)
 {
@@ -338,12 +337,11 @@ void ResolveNormalKeys(void)
     }
 }
 
-bool HandleSpecialKeyFunctions(void)
+bool CustomKeyCombos(void)
 {
-    // hacky hardcoded, but i'm lazy to fix this.
-    if (currKeys[5][0] == true &&
-        currKeys[5][2] == true &&
-        currKeys[0][14] == true) {
+    if (currKeys[4][0]  /*ctrl*/ == true &&
+        currKeys[4][2]  /*alt */ == true &&
+        currKeys[0][14] /*pause*/== true) {
         Reboot();
         return true;
     } else {
@@ -400,8 +398,6 @@ void RemoveKey(uint8_t key)
         }
     }
 }
-
-// -----------------------------------------------------------------
 
 void Reboot(void)
 {
