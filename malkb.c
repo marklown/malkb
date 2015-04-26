@@ -60,14 +60,14 @@ static const uint8_t layers[NUM_LAYERS][NUM_ROWS][NUM_COLS] = {
       {TAB,    Q,    W,    E,    R,    T,    Y,    U,    I,    O,    P,    LBRC,  RBRC,  BSLSH, DEL},
       {FN0,    A,    S,    D,    F,    G,    H,    J,    K,    L,    SCOL, QUOT,  0,     ENTR,  ESC},
       {LSHIFT, Z,    X,    C,    V,    B,    N,    M,    COMM, PRD,  SLSH, 0,     RSHIFT,UP,    NONE},
-      {LCTRL,  LGUI, LALT, 0,    0,    0,    0,    SPC,  0,    0,    RALT, FN0,   LEFT,  DOWN,  RIGHT}},
+      {LCTRL,  0,    LGUI, LALT,    0,    0,    0,    SPC,  0,    0,    RALT, FN0,   LEFT,  DOWN,  RIGHT}},
 
      /* Layer 1 - FN0 */
      {{ESC,    F1,   F2,   F3,   F4,   F5,   F6,   F7,   F8,   F9,   F10,  F11,   F12,   0,     DEL},
       {TAB,    NONE, NONE, NONE, NONE, NONE, NONE, PGUP, NONE, UP,   NONE, NONE,  NONE,  NONE,  VOLUP},
       {FN0,    NONE, NONE, PGDN, NONE, NONE, NONE, NONE, LEFT, DOWN, RIGHT,NONE,  0,     NONE,  VOLDN},
       {LSHIFT, NONE, NONE, NONE, NONE, NONE, NONE, NONE, NONE, NONE, NONE, 0,     NONE,  NONE,  MUTE},
-      {LCTRL,  LGUI, LALT, 0,    0,    0,    0,    SPC,  0,    0,    RALT, FN0,   NONE,  NONE,  NONE}}
+      {LCTRL,  0,    LGUI, LALT,    0,    0,    0,    SPC,  0,    0,    RALT, FN0,   NONE,  NONE,  NONE}}
 };
 
 // ------ VARIABLES -------------------------------------------------------------------------------
@@ -145,11 +145,6 @@ void KeyboardLoop(void)
         
         // Read the key matrix
 		ReadMatrix();
-        
-		///// debug
-		//LED_ON;
-		//SetRowAndCol(1, 1, true);
-		/////
 		
         ResolveFunctionKeys();
         ResolveModifierKeys();
