@@ -44,23 +44,30 @@ typedef struct Debounce {
 	uint16_t On;
 	uint16_t Off;
 } _debounce;
+// ctrl fn win alt    alt win menu ctrl (das layout)
+typedef void (*MacroHandler)(void);
+
+typedef struct KeyMacro {
+	uint8_t Keys[6][6];		// row, col of up to 6 keys
+	MacroHandler Handler;	// macro handler function pointer
+} _macro;
 
 static const uint8_t layers[NUM_LAYERS][NUM_ROWS][NUM_COLS] = {
 /*     0       1     2     3     4     5     6     7     8     9     10    11     12     13     14 */
     
      /* Layer 0 */
-     {{TLDE,   N1,   N2,   N3,   N4,   N5,   N6,   N7,   N8,   N9,   N0,   MIN,   EQL,   BSPC,  NONE},
-      {TAB,    Q,    W,    E,    R,    T,    Y,    U,    I,    O,    P,    LBRC,  RBRC,  BSLSH, ESC},
-      {FN0,    A,    S,    D,    F,    G,    H,    J,    K,    L,    SCOL, QUOT,  ENTR,  NONE,  PAUS},
-      {LSHIFT, Z,    X,    C,    V,    B,    N,    M,    COMM, PRD,  SLSH, RSHIFT,NONE,  UP,    NONE},
-      {LCTRL,  LGUI, LALT, SPC,  NONE, NONE, NONE, NONE, NONE, NONE, RALT, FN0,   LEFT,  DOWN,  RIGHT}},
+     {{TLDE,   N1,   N2,   N3,   N4,   N5,   N6,   N7,   N8,   N9,   N0,   MIN,   EQL,   0,     BSPC},
+      {TAB,    Q,    W,    E,    R,    T,    Y,    U,    I,    O,    P,    LBRC,  RBRC,  BSLSH, DEL},
+      {FN0,    A,    S,    D,    F,    G,    H,    J,    K,    L,    SCOL, QUOT,  0,     ENTR,  ESC},
+      {LSHIFT, Z,    X,    C,    V,    B,    N,    M,    COMM, PRD,  SLSH, 0,     RSHIFT,UP,    NONE},
+      {LCTRL,  LGUI, LALT, 0,    0,    0,    0,    SPC,  0,    0,    RALT, FN0,   LEFT,  DOWN,  RIGHT}},
 
      /* Layer 1 - FN0 */
-     {{ESC,    F1,   F2,   F3,   F4,   F5,   F6,   F7,   F8,   F9,   F10,  F11,   F12,   DEL,   NONE},
-      {TAB,    NONE, NONE, NONE, NONE, NONE, NONE, PGUP, NONE, NONE, NONE, NONE,  NONE,  NONE,  NONE},
-      {FN0,    NONE, NONE, PGDN, NONE, NONE, LEFT, DOWN, UP,   RIGHT,NONE, NONE,  NONE,  NONE,  NONE},
-      {LSHIFT, NONE, NONE, NONE, NONE, NONE, NONE, NONE, NONE, NONE, NONE, NONE,  NONE,  NONE,  NONE},
-      {LCTRL,  LGUI, LALT, SPC,  NONE, NONE, NONE, NONE, NONE, NONE, RALT, FN0,   NONE,  NONE,  NONE}}
+     {{ESC,    F1,   F2,   F3,   F4,   F5,   F6,   F7,   F8,   F9,   F10,  F11,   F12,   0,     DEL},
+      {TAB,    NONE, NONE, NONE, NONE, NONE, NONE, PGUP, NONE, UP,   NONE, NONE,  NONE,  NONE,  VOLUP},
+      {FN0,    NONE, NONE, PGDN, NONE, NONE, NONE, NONE, LEFT, DOWN, RIGHT,NONE,  0,     NONE,  VOLDN},
+      {LSHIFT, NONE, NONE, NONE, NONE, NONE, NONE, NONE, NONE, NONE, NONE, 0,     NONE,  NONE,  MUTE},
+      {LCTRL,  LGUI, LALT, 0,    0,    0,    0,    SPC,  0,    0,    RALT, FN0,   NONE,  NONE,  NONE}}
 };
 
 // ------ VARIABLES -------------------------------------------------------------------------------
@@ -69,6 +76,8 @@ bool currKeys[NUM_ROWS][NUM_COLS];						// Current matrix state
 bool lastKeys[NUM_ROWS][NUM_COLS];						// Last matrix state
 uint8_t currLayer = 0;									// Current active layer
 struct Debounce debounce[NUM_ROWS][NUM_COLS];			// Current debounce state
+struct KeyMacro macros[32];								// Array of custom macros
+uint8_t macroIndex = 0;
 
 // ------ PROTOTYPES ------------------------------------------------------------------------------
 
@@ -82,26 +91,31 @@ void SelectRow(uint8_t row);							// Select one row
 void ResolveFunctionKeys(void);							// Resolve function key presses
 void ResolveModifierKeys(void);							// Resolve modifier key presses
 void ResolveNormalKeys(void);							// Resolve normal key presses
-bool CustomKeyCombos(void);								// Handle custom key combos
+void ResolveMacros(void);								// Handle custom key combos (macros)
 void InsertKey(uint8_t key);							// Insert a pressed key into the list
 void RemoveKey(uint8_t key);							// Remove a release key from the list
 bool IsFunctionKey(uint8_t key);						// Check if this is a function key
 bool IsModifierKey(uint8_t key);						// Check if this is a modifier key
 bool IsNormalKey(uint8_t key);							// Check if this is a normal key
 void Reboot(void);										// Jump to the bootloader
+void AddMacro(uint8_t k1, uint8_t k2, uint8_t k3,		// Add a macro
+			  uint8_t k4, uint8_t k5, uint8_t k6,
+			  MacroHandler handler);
+			  
+// Macro handlers
+void RebootMacro(void) {}
 
-// ------ MAIN ENTRY POINT ------------------------------------------------------------------------
 
 int main(void)
 {
     LED_CONFIG;
-/*    uint8_t i;
+    uint8_t i;
     for (i = 0; i < 5; i++) {
         LED_ON;
         _delay_ms(100);
         LED_OFF;
         _delay_ms(100);
-    }*/
+    }
     
     // Set for 16 MHz clock
     CPU_PRESCALE(0);
@@ -114,9 +128,6 @@ int main(void)
     // this will wait forever.
     usb_init();
     while (!usb_configured());
-    
-    // Wait an extra second for the PC's operating system to load drivers
-    // and do whatever it does to actually be ready for input
     _delay_ms(INIT_WAIT_MS);
     
     // Main loop
@@ -140,10 +151,11 @@ void KeyboardLoop(void)
 		//SetRowAndCol(1, 1, true);
 		/////
 		
-        CustomKeyCombos();
         ResolveFunctionKeys();
         ResolveModifierKeys();
         ResolveNormalKeys();
+		
+		ResolveMacros();
         
         // Send key command over usb (only 6KRO right now)
         usb_keyboard_send();
@@ -157,20 +169,20 @@ void KeyboardInit(void)
 {
 	// Configure rows - outputs initially Hi-Z
     // row: 0   1   2   3   4
-    // pin: D0  D1  D2  D3  D4
+    // pin: B4  D7  D4  D5  C7
     UnselectRows();
 	
     // Configure columns - inputs with internal pull-up resistors
     // col: 0   1   2   3   4   5   6   7   8   9   10  11  12  13  14
-    // pin: F0  F1  F4  C7  C6  B6  D5  B1  B0  B5  B4  D7  D5  B3  F5
-	DDRB &= ~((1<<7) | (1<<6) | (1<<5) | (1<<4) | (1<<3) | (1<<1) | (1<<0));
-    PORTB |= ((1<<7) | (1<<6) | (1<<5) | (1<<4) | (1<<3) | (1<<1) | (1<<0));
-    DDRC &= ~((1<<7) | (1<<6));
-    PORTC |= ((1<<7) | (1<<6));
-	DDRD &= ~((1<<7) | (1<<5));
-    PORTD |= ((1<<7) | (1<<5));
-    DDRF &= ~((1<<5) | (1<<4) | (1<<1) | (1<<0));
-    PORTF |= ((1<<5) | (1<<4) | (1<<1) | (1<<0));
+    // pin: C6  D3  B5  D2  D1  D0  B7  B3  B2  B1  B0  F5  F4  F0  F7
+	DDRB &= ~((1<<7) | (1<<5) | (1<<3) | (1<<2) | (1<<1) | (1<<0));
+    PORTB |= ((1<<7) | (1<<5) | (1<<3) | (1<<2) | (1<<1) | (1<<0));
+    DDRC &= ~((1<<6));
+    PORTC |= ((1<<6));
+	DDRD &= ~((1<<3) | (1<<2) | (1<<1) | (1<<0));
+    PORTD |= ((1<<3) | (1<<2) | (1<<1) | (1<<0));
+    DDRF &= ~((1<<7) | (1<<5) | (1<<4) | (1<<0));
+    PORTF |= ((1<<7) | (1<<5) | (1<<4) | (1<<0));
 	
     memset(&keyboard_modifier_keys, 0, sizeof(keyboard_modifier_keys));
     memset(&keyboard_keys, 0, sizeof(keyboard_keys));
@@ -178,6 +190,9 @@ void KeyboardInit(void)
 	memset(currKeys, 0, sizeof(currKeys[0][0]) * NUM_ROWS * NUM_COLS);
 	memset(lastKeys, 0, sizeof(lastKeys[0][0]) * NUM_ROWS * NUM_COLS);
 	memset(debounce, 0, sizeof(debounce[0][0]) * NUM_ROWS * NUM_COLS);
+	
+	// Add some macros
+	AddMacro(LCTRL, LALT, PAUS, 0, 0, 0, RebootMacro);
 }
 
 void ReadMatrix(void)
@@ -192,29 +207,35 @@ void ReadMatrix(void)
 
 void CheckColForRow(uint8_t row)
 {
+    // col: 0   1   2   3   4   5   6   7   8   9   10  11  12  13  14
+    // pin: C6  D3  B5  D2  D1  D0  B7  B3  B2  B1  B0  F5  F4  F0  F7
     // A switch is on when it's pin is also pulled to ground
-    PINF & (1<<0) ? SetRowAndCol(row, 0, false) : SetRowAndCol(row, 0, true);
-    PINF & (1<<1) ? SetRowAndCol(row, 1, false) : SetRowAndCol(row, 1, true);
-    PINF & (1<<4) ? SetRowAndCol(row, 2, false) : SetRowAndCol(row, 2, true);
-    PINC & (1<<7) ? SetRowAndCol(row, 3, false) : SetRowAndCol(row, 3, true);
-    PINC & (1<<6) ? SetRowAndCol(row, 4, false) : SetRowAndCol(row, 4, true);
-    PINB & (1<<6) ? SetRowAndCol(row, 5, false) : SetRowAndCol(row, 5, true);
-    PIND & (1<<5) ? SetRowAndCol(row, 6, false) : SetRowAndCol(row, 6, true);
-    PINB & (1<<1) ? SetRowAndCol(row, 7, false) : SetRowAndCol(row, 7, true);
-    PINB & (1<<0) ? SetRowAndCol(row, 8, false) : SetRowAndCol(row, 8, true);
-    PINB & (1<<5) ? SetRowAndCol(row, 9, false) : SetRowAndCol(row, 9, true);
-    PINB & (1<<4) ? SetRowAndCol(row, 10, false) : SetRowAndCol(row, 10, true);
-    PIND & (1<<7) ? SetRowAndCol(row, 11, false) : SetRowAndCol(row, 11, true);
-    PIND & (1<<5) ? SetRowAndCol(row, 12, false) : SetRowAndCol(row, 12, true);
-    PINB & (1<<3) ? SetRowAndCol(row, 13, false) : SetRowAndCol(row, 13, true);
-    PINF & (1<<5) ? SetRowAndCol(row, 14, false) : SetRowAndCol(row, 14, true);
+    PINC & (1<<6) ? SetRowAndCol(row, 0, false) : SetRowAndCol(row, 0, true);
+    PIND & (1<<3) ? SetRowAndCol(row, 1, false) : SetRowAndCol(row, 1, true);
+    PINB & (1<<5) ? SetRowAndCol(row, 2, false) : SetRowAndCol(row, 2, true);
+    PIND & (1<<2) ? SetRowAndCol(row, 3, false) : SetRowAndCol(row, 3, true);
+    PIND & (1<<1) ? SetRowAndCol(row, 4, false) : SetRowAndCol(row, 4, true);
+    PIND & (1<<0) ? SetRowAndCol(row, 5, false) : SetRowAndCol(row, 5, true);
+    PINB & (1<<7) ? SetRowAndCol(row, 6, false) : SetRowAndCol(row, 6, true);
+    PINB & (1<<3) ? SetRowAndCol(row, 7, false) : SetRowAndCol(row, 7, true);
+    PINB & (1<<2) ? SetRowAndCol(row, 8, false) : SetRowAndCol(row, 8, true);
+    PINB & (1<<1) ? SetRowAndCol(row, 9, false) : SetRowAndCol(row, 9, true);
+    PINB & (1<<0) ? SetRowAndCol(row, 10, false) : SetRowAndCol(row, 10, true);
+    PINF & (1<<5) ? SetRowAndCol(row, 11, false) : SetRowAndCol(row, 11, true);
+    PINF & (1<<4) ? SetRowAndCol(row, 12, false) : SetRowAndCol(row, 12, true);
+    PINF & (1<<0) ? SetRowAndCol(row, 13, false) : SetRowAndCol(row, 13, true);
+    PINF & (1<<7) ? SetRowAndCol(row, 14, false) : SetRowAndCol(row, 14, true);
 }
 
 void UnselectRows(void)
 {
     // Hi-Z (floating)
-    DDRD  &= ~0b00011111;
-    PORTD &= ~0b00011111;
+	DDRB  &= ~0b00010000;
+	PORTB &= ~0b00010000;
+    DDRD  &= ~0b10110000;
+    PORTD &= ~0b10110000;
+	DDRC  &= ~0b10000000;
+	PORTC &= ~0b10000000;
     _delay_us(IO_WAIT_US);
 }
 
@@ -223,24 +244,24 @@ void SelectRow(uint8_t row)
     // Pull selected pin to ground
     switch (row) {
         case 0:
-            DDRD  |=  (1<<0);
-            PORTD &= ~(1<<0);
+            DDRB  |=  (1<<4);
+            PORTB &= ~(1<<4);
             break;
         case 1:
-            DDRD  |=  (1<<1);
-            PORTD &= ~(1<<1);
+            DDRD  |=  (1<<7);
+            PORTD &= ~(1<<7);
             break;
         case 2:
-            DDRD  |=  (1<<2);
-            PORTD &= ~(1<<2);
-            break;
-        case 3:
-            DDRD  |=  (1<<3);
-            PORTD &= ~(1<<3);
-            break;
-        case 4:
             DDRD  |=  (1<<4);
             PORTD &= ~(1<<4);
+            break;
+        case 3:
+            DDRD  |=  (1<<5);
+            PORTD &= ~(1<<5);
+            break;
+        case 4:
+            DDRC  |=  (1<<7);
+            PORTC &= ~(1<<7);
             break;
     }
     _delay_us(IO_WAIT_US);
@@ -263,6 +284,22 @@ void SetRowAndCol(uint8_t row, uint8_t col, bool val)
 #else
     currKeys[row][col] = val;
 #endif
+}
+
+// --------- MACROS ----------------------------------------------------
+
+void AddMacro(uint8_t k1, uint8_t k2, uint8_t k3,
+			  uint8_t k4, uint8_t k5, uint8_t k6,
+			  MacroHandler handler)
+{
+	if (macroIndex > 32) {
+		return;
+	}
+	struct KeyMacro m;
+//	uint8_t k[6] = {k1,k2,k3,k4,k5,k6};
+	m.Handler = handler;
+//	memcpy(&m.Keys, &k, sizeof(k));
+	memcpy(&macros[macroIndex++], &m, sizeof(m));
 }
 
 // --------- RESOLVE KEY PRESSES ---------------------------------------
@@ -294,9 +331,7 @@ void ResolveFunctionKeys(void)
 void ResolveModifierKeys(void)
 {
     uint8_t row, col;
-    
-    keyboard_modifier_keys = 0;
-    
+        
     for (row = 0; row < NUM_ROWS; row++) {
         for (col = 0; col < NUM_COLS; col++) {
             
@@ -308,6 +343,8 @@ void ResolveModifierKeys(void)
                 
                 if (state == true) {
                     keyboard_modifier_keys |= TO_MOD(layers[currLayer][row][col]);
+                } else {
+                	keyboard_modifier_keys &= ~TO_MOD(layers[currLayer][row][col]);
                 }
             }
         }
@@ -337,16 +374,22 @@ void ResolveNormalKeys(void)
     }
 }
 
-bool CustomKeyCombos(void)
+void ResolveMacros(void)
 {
-    if (currKeys[4][0]  /*ctrl*/ == true &&
-        currKeys[4][2]  /*alt */ == true &&
-        currKeys[0][14] /*pause*/== true) {
-        Reboot();
-        return true;
-    } else {
-        return false;
-    }
+	uint8_t i;
+	uint8_t count = 0;
+	for (i = 0; i < 6; i++) {
+		uint8_t key = keyboard_keys[i];
+		if (key == UP) {
+			count++;
+		}
+		if (key == DEL) {
+			count++;
+		}
+	}
+	if (count > 1) {
+		Reboot();
+	}
 }
 
 inline bool IsModifierKey(uint8_t key)
@@ -382,6 +425,7 @@ void InsertKey(uint8_t key)
     for (i = 0; i < sizeof(keyboard_keys); i++) {
         if (keyboard_keys[i] == 0) {
             free_index = i;
+			break;
         }
     }
     
