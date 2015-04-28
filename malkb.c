@@ -59,15 +59,15 @@ static const uint8_t layers[NUM_LAYERS][NUM_ROWS][NUM_COLS] = {
      {{TLDE,   N1,   N2,   N3,   N4,   N5,   N6,   N7,   N8,   N9,   N0,   MIN,   EQL,   0,     BSPC},
       {TAB,    Q,    W,    E,    R,    T,    Y,    U,    I,    O,    P,    LBRC,  RBRC,  BSLSH, DEL},
       {FN0,    A,    S,    D,    F,    G,    H,    J,    K,    L,    SCOL, QUOT,  0,     ENTR,  ESC},
-      {LSHIFT, Z,    X,    C,    V,    B,    N,    M,    COMM, PRD,  SLSH, 0,     RSHIFT,UP,    NONE},
-      {LCTRL,  0,    LGUI, LALT,    0,    0,    0,    SPC,  0,    0,    RALT, FN0,   LEFT,  DOWN,  RIGHT}},
+      {LSHIFT, Z,    X,    C,    V,    B,    N,    M,    COMM, PRD,  SLSH, 0,     RSHIFT,UP,    PGM},
+      {LCTRL,  0,    LGUI, LALT, 0,    0,    0,    SPC,  0,    0,    RALT, FN0,   LEFT,  DOWN,  RIGHT}},
 
      /* Layer 1 - FN0 */
      {{ESC,    F1,   F2,   F3,   F4,   F5,   F6,   F7,   F8,   F9,   F10,  F11,   F12,   0,     DEL},
       {TAB,    NONE, NONE, NONE, NONE, NONE, NONE, PGUP, NONE, UP,   NONE, NONE,  NONE,  NONE,  VOLUP},
       {FN0,    NONE, NONE, PGDN, NONE, NONE, NONE, NONE, LEFT, DOWN, RIGHT,NONE,  0,     NONE,  VOLDN},
       {LSHIFT, NONE, NONE, NONE, NONE, NONE, NONE, NONE, NONE, NONE, NONE, 0,     NONE,  NONE,  MUTE},
-      {LCTRL,  0,    LGUI, LALT,    0,    0,    0,    SPC,  0,    0,    RALT, FN0,   NONE,  NONE,  NONE}}
+      {LCTRL,  0,    LGUI, LALT, 0,    0,    0,    SPC,  0,    0,    RALT, FN0,   NONE,  NONE,  NONE}}
 };
 
 // ------ VARIABLES -------------------------------------------------------------------------------
@@ -78,6 +78,8 @@ uint8_t currLayer = 0;									// Current active layer
 struct Debounce debounce[NUM_ROWS][NUM_COLS];			// Current debounce state
 struct KeyMacro macros[32];								// Array of custom macros
 uint8_t macroIndex = 0;
+bool pgmMode = false;
+uint8_t pgmState = 0;
 
 // ------ PROTOTYPES ------------------------------------------------------------------------------
 
@@ -101,6 +103,7 @@ void Reboot(void);										// Jump to the bootloader
 void AddMacro(uint8_t k1, uint8_t k2, uint8_t k3,		// Add a macro
 			  uint8_t k4, uint8_t k5, uint8_t k6,
 			  MacroHandler handler);
+void DoProgram(void);
 			  
 // Macro handlers
 void RebootMacro(void) {}
@@ -146,14 +149,15 @@ void KeyboardLoop(void)
         // Read the key matrix
 		ReadMatrix();
 		
-        ResolveFunctionKeys();
-        ResolveModifierKeys();
-        ResolveNormalKeys();
-		
-		ResolveMacros();
-        
-        // Send key command over usb (only 6KRO right now)
-        usb_keyboard_send();
+		if (pgmMode == true) {
+			DoProgram();
+		} else {
+	        ResolveFunctionKeys();
+	        ResolveModifierKeys();
+	        ResolveNormalKeys();
+			ResolveMacros();
+        	usb_keyboard_send();
+		}
         
         // Wait a small amount of time
         _delay_ms(LOOP_WAIT_MS);
@@ -297,6 +301,70 @@ void AddMacro(uint8_t k1, uint8_t k2, uint8_t k3,
 	memcpy(&macros[macroIndex++], &m, sizeof(m));
 }
 
+void DoProgram(void) 
+{
+	static uint8_t state = 0;
+	static uint8_t pgm = 1;
+	
+	static uint8_t p[13] = {I,SPC,L,O,V,E,SPC,U,SPC,M,Y,R,A};
+	static uint8_t m[13] = {LSHIFT,0,LSHIFT,0,0,0,0,0,0,LSHIFT,0,0,0};
+	static uint8_t idx = 0;
+	
+	bool fn = false;
+	
+	switch (state) {
+	// init
+	case 0:
+		LED_ON;
+		state = 1;
+    	memset(&keyboard_keys, 0, sizeof(keyboard_keys));
+		break;
+		
+	// idle - waiting for next cmd	
+	case 1:
+		ResolveFunctionKeys();
+		if (currLayer == 1) fn = true;
+		currLayer = 0;
+		ResolveNormalKeys();
+		if (fn == true) {
+			
+		} else {
+			if (keyboard_keys[0] >= N1 && keyboard_keys[0] <= N9) {
+				pgm = keyboard_keys[0] - N1;
+				state = 2;
+			}
+		}
+    	memset(&keyboard_keys, 0, sizeof(keyboard_keys));
+		break;
+		
+	// program running
+	case 2:
+		memset(&keyboard_keys, 0, sizeof(keyboard_keys));
+		memset(&keyboard_modifier_keys, 0, sizeof(keyboard_modifier_keys));
+		if (idx >= 13) {
+	    	usb_keyboard_send();
+			idx = 0;
+			state = 1;
+			_delay_ms(1000);
+			break;
+		}
+		keyboard_keys[0] = p[idx++];
+		keyboard_modifier_keys |= TO_MOD(m[idx]);
+    	usb_keyboard_send();
+		
+		break;
+	}
+
+
+	if (pgmMode == false) {
+		state = 0;
+		LED_OFF;
+		_delay_ms(100);
+		return;
+	}
+
+}
+
 // --------- RESOLVE KEY PRESSES ---------------------------------------
 
 void ResolveFunctionKeys(void)
@@ -360,10 +428,16 @@ void ResolveNormalKeys(void)
             if (IsNormalKey(key) && (state != last_state)) {
                 
                 if (state == true) {
-                    InsertKey(key);
+					if (key == PGM) {
+						if (pgmMode == true) pgmMode = false;
+						else pgmMode = true;
+						return;
+					} else {
+                    	InsertKey(key);
+					}
                 } else {
                     RemoveKey(key);
-                }
+				}
             }
         }
     }

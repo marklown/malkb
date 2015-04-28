@@ -169,6 +169,7 @@ inline uint8_t TO_MOD(uint8_t key)
 #define FN1     101
 #define FN2     102
 #define NONE    0
+#define PGM		103
 
 #define MUTE	127
 #define VOLUP	128
